@@ -1,5 +1,3 @@
-import uuid
-
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -34,14 +32,19 @@ class RoomListCreateView(generics.ListCreateAPIView):
         other_ids = []
         seen = set()
         for raw_id in participant_ids:
-            try:
-                user_id = uuid.UUID(str(raw_id))
-            except (ValueError, AttributeError):
+            if isinstance(raw_id, bool):
                 return Response(
                     {"participant_ids": [f"Invalid user ID: {raw_id}"]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if str(user_id) == str(request.user.id):
+            try:
+                user_id = int(raw_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {"participant_ids": [f"Invalid user ID: {raw_id}"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if user_id == request.user.id:
                 continue
             if user_id in seen:
                 continue
