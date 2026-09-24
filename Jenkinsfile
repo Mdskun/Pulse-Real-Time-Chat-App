@@ -185,11 +185,21 @@ if ! kubectl rollout status deployment/db -n realtime-chat --timeout=300s; then
   exit 1
 fi
 
-# 6. Backend (entrypoint.sh runs migrate/collectstatic/createsuperuser automatically on boot)
+# 6. Run migrations exactly once via a Job (single runner) before the
+#    backend rollout. The backend pods below boot Daphne directly;
+#    entrypoint.sh's own migrate stays as a no-op safety net.
+kubectl apply -f k8s/15-migrations.yaml
+if ! kubectl wait --for=condition=complete job/chat-migrations -n realtime-chat --timeout=300s; then
+  echo "❌ Migrations failed. Dumping logs..."
+  kubectl logs job/chat-migrations -n realtime-chat --tail=100
+  exit 1
+fi
+
+# 7. Backend (entrypoint.sh runs collectstatic/createsuperuser automatically on boot)
 kubectl apply -f k8s/20-backend.yaml
 kubectl rollout status deployment/backend -n realtime-chat --timeout=120s
 
-# 7. Frontend
+# 8. Frontend
 kubectl apply -f k8s/21-frontend.yaml
 kubectl rollout restart deployment/frontend -n realtime-chat
 if ! kubectl rollout status deployment/frontend -n realtime-chat --timeout=120s; then
@@ -202,7 +212,7 @@ if ! kubectl rollout status deployment/frontend -n realtime-chat --timeout=120s;
   exit 1
 fi
 
-# 8. Ingress - same substitution as the ConfigMap, real host in, chat.local out.
+# 9. Ingress - same substitution as the ConfigMap, real host in, chat.local out.
 sed "s/chat\\.local/${CHAT_HOST}/g" k8s/30-ingress.yaml | kubectl apply -f -
 
 # ── Cleanup temp creds file ───────────────────────────────────────────────────

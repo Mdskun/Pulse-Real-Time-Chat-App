@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chat-migrations
+  namespace: realtime-chat
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          # Same image as k8s/20-backend.yaml (`docker.io/mdskun/chatapp_backend:latest`).
+          # K8s `command` overrides the image ENTRYPOINT (entrypoint.sh), so this Job
+          # runs `migrate` exactly once before the backend rollout — the backend pods'
+          # own `migrate` in entrypoint.sh then becomes a no-op safety net.
+          image: docker.io/mdskun/chatapp_backend:latest
+          imagePullPolicy: Always
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          envFrom:
+            - configMapRef:
+                name: chat-config
+            - secretRef:
+                name: chat-secrets
