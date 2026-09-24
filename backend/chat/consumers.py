@@ -15,6 +15,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.user = self.scope["user"]
         self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
         self.room_group_name = f"chat_{self.room_id}"
+        self.accepted = False
 
         if not self.user or not self.user.is_authenticated:
             await self.close(code=4001)
@@ -27,6 +28,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
+        self.accepted = True
         await self.set_online(True)
         await self.channel_layer.group_send(
             self.room_group_name,
@@ -34,6 +36,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
+        if not getattr(self, "accepted", False):
+            return
         if getattr(self, "user", None) and self.user.is_authenticated:
             await self.set_online(False)
             await self.channel_layer.group_send(
@@ -43,11 +47,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
+        try:
+            data = json.loads(text_data)
+        except (json.JSONDecodeError, TypeError):
+            return
+
         message_type = data.get("type")
 
         if message_type == "message":
-            message = await self.create_message(data.get("content", ""))
+            content = data.get("content", "")
+            if isinstance(content, str):
+                content = content.strip()
+            else:
+                content = ""
+            if not content:
+                return
+            message = await self.create_message(content)
             payload = await self.serialize_message(message)
             payload = json.loads(json.dumps(payload, default=str))
             await self.channel_layer.group_send(

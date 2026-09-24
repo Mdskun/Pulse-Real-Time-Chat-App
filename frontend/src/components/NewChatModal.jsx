@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import api from "../api/axios.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import UserAvatar from "./UserAvatar.jsx";
 
 export default function NewChatModal({ onClose, onCreated }) {
+  const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
 
@@ -11,9 +13,9 @@ export default function NewChatModal({ onClose, onCreated }) {
     api.get("/auth/users/").then(({ data }) => setUsers(data));
   }, []);
 
-  const filtered = users.filter((u) =>
-    u.username.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = users
+    .filter((u) => u.id !== user?.id)
+    .filter((u) => u.username.toLowerCase().includes(search.toLowerCase()));
 
   const startChat = async (targetUser) => {
     const { data } = await api.post("/chat/rooms/", {

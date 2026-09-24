@@ -1,4 +1,7 @@
+import uuid
+
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -18,28 +21,72 @@ class RoomListCreateView(generics.ListCreateAPIView):
         return Room.objects.filter(participants=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        user_ids = request.data.get("participant_ids", [])
-        is_group = request.data.get("is_group", False)
+        participant_ids = request.data.get("participant_ids", [])
+        is_group = bool(request.data.get("is_group", False))
         name = request.data.get("name", "")
 
-        if not is_group and len(user_ids) == 1:
-            existing = (
-                Room.objects.filter(is_group=False, participants=request.user)
-                .filter(participants__id=user_ids[0])
-                .first()
+        if not isinstance(participant_ids, list):
+            return Response(
+                {"participant_ids": ["Must be a list of user IDs."]},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if existing:
-                return Response(
-                    RoomSerializer(existing, context={"request": request}).data,
-                    status=status.HTTP_200_OK,
-                )
 
-        room = Room.objects.create(name=name, is_group=is_group)
-        room.participants.add(request.user, *user_ids)
-        return Response(
-            RoomSerializer(room, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
-        )
+        other_ids = []
+        seen = set()
+        for raw_id in participant_ids:
+            try:
+                user_id = uuid.UUID(str(raw_id))
+            except (ValueError, AttributeError):
+                return Response(
+                    {"participant_ids": [f"Invalid user ID: {raw_id}"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if str(user_id) == str(request.user.id):
+                continue
+            if user_id in seen:
+                continue
+            seen.add(user_id)
+            other_ids.append(user_id)
+
+        if not other_ids:
+            return Response(
+                {"participant_ids": ["At least one other participant is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_count = User.objects.filter(id__in=other_ids).count()
+        if valid_count != len(other_ids):
+            return Response(
+                {"participant_ids": ["One or more participants do not exist."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not is_group and len(other_ids) != 1:
+            return Response(
+                {"participant_ids": ["Direct messages must have exactly one other participant."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            if not is_group:
+                existing = (
+                    Room.objects.select_for_update()
+                    .filter(is_group=False, participants=request.user)
+                    .filter(participants__id=other_ids[0])
+                    .first()
+                )
+                if existing:
+                    return Response(
+                        RoomSerializer(existing, context={"request": request}).data,
+                        status=status.HTTP_200_OK,
+                    )
+
+            room = Room.objects.create(name=name, is_group=is_group)
+            room.participants.add(request.user, *other_ids)
+            return Response(
+                RoomSerializer(room, context={"request": request}).data,
+                status=status.HTTP_201_CREATED,
+            )
 
 
 class RoomDetailView(generics.RetrieveAPIView):

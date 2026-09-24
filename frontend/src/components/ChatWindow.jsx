@@ -8,7 +8,7 @@ import MessageInput from "./MessageInput.jsx";
 import TypingIndicator from "./TypingIndicator.jsx";
 import UserAvatar from "./UserAvatar.jsx";
 
-export default function ChatWindow({ room }) {
+export default function ChatWindow({ room, onActivity }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
@@ -35,8 +35,16 @@ export default function ChatWindow({ room }) {
 
   const { connected, sendMessage, sendTyping } = useChatSocket(room.id, {
     onMessage: (message) => {
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev) => {
+        if (!message?.id) return prev;
+        if (prev.some((m) => m.id === message.id)) return prev;
+        return [...prev, message];
+      });
       setTypingUser(null);
+      if (message.sender?.id !== user?.id) {
+        api.post(`/chat/rooms/${room.id}/read/`).catch(() => {});
+      }
+      onActivity?.();
     },
     onTyping: (username, isTyping) => {
       clearTimeout(typingClearTimeout.current);
@@ -49,6 +57,7 @@ export default function ChatWindow({ room }) {
     },
     onPresence: (username, isOnline) => {
       if (username === other?.username) setOtherOnline(isOnline);
+      onActivity?.();
     },
   });
 
