@@ -384,7 +384,7 @@ Questions, bug reports, and feature ideas belong in the [Issues](https://github.
 
 ## License
 
-The repository does not currently include a `LICENSE` file, so no license is specified. Contact the author if you intend to reuse the code.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
 ---
 
